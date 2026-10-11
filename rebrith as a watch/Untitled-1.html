@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>信号检测论｜PPG心率检测模拟实验</title>
+<style>
+*{box-sizing:border-box;font-family:"Microsoft Yahei",sans-serif;}
+body{max-width:900px;margin:20px auto;padding:0 20px;background:#f4f7fa;color:#222;}
+.container{background:#fff;padding:28px;border-radius:12px;box-shadow:0 2px 12px #00000015;}
+h1{text-align:center;font-size:22px;margin-top:0;}
+.desc{color:#444;line-height:1.6;margin-bottom:20px;}
+canvas{width:100%;height:260px;border:1px solid #ccc;background:#0b1020;border-radius:8px;}
+.ctrl{margin-top:18px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;}
+button{padding:10px 18px;font-size:16px;border:none;border-radius:6px;cursor:pointer;background:#2b65ec;color:white;}
+button:disabled{background:#a0b8f0;cursor:not-allowed;}
+.btn-no{background:#e24343;}
+.confidence{margin:16px 0;}
+.stats{margin-top:20px;padding:16px;background:#f7f9fc;border-radius:8px;font-family:monospace;}
+.trial-info{font-weight:bold;margin:8px 0;color:#2b65ec;}
+.feedback{padding:10px;border-radius:6px;margin:10px 0;}
+.correct{background:#e6f9ed;color:#08702e;}
+.wrong{background:#ffe9e9;color:#a81c1c;}
+.hidden{display:none;}
+.slider-wrap{margin:10px 0;}
+input[type="range"]{width:100%;}
+.result-block{margin-top:20px;}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>信号检测论实验：智能手环PPG心率感知模拟</h1>
+
+<div id="page-intro" class="desc">
+<p><strong>实验背景：</strong>智能手环通过PPG光电容积脉搏波采集心率。环境光、运动伪影会引入噪声，有时波形被噪声淹没，设备需要区分【真实脉搏信号+噪声】与【纯噪声】。</p>
+<p>本实验模拟PPG波形，每一试次你会看到一段波形。<br>
+任务：判断当前波形中<strong>是否存在真实心率脉搏信号</strong>。</p>
+<ul>
+<li>有信号：信号+噪声（存在脉搏）</li>
+<li>无信号：只有噪声（没有脉搏）</li>
+</ul>
+<p>做完判断后，请选择你的置信程度。实验结束自动计算信号检测论指标 d'（辨别力）、β（判断标准）。</p>
+<button onclick="startExp()">开始实验</button>
+</div>
+
+<div id="page-exp" class="hidden">
+<div class="trial-info">试次：<span id="trial-num">0</span> / <span id="total-trial">40</span></div>
+<canvas id="ppgCanvas"></canvas>
+
+<div class="confidence">
+<label>你的判断置信度（1完全不确定 ~ 5非常确定）</label>
+<div class="slider-wrap">
+<input type="range" min="1" max="5" value="3" id="confSlider">
+<span>当前：<span id="confVal">3</span></span>
+</div>
+</div>
+
+<div class="ctrl">
+<button id="btnYes" onclick="response(true)">✅检测到脉搏信号</button>
+<button id="btnNo" class="btn-no" onclick="response(false)">❌未检测到脉搏信号</button>
+<button id="btnNext" disabled onclick="nextTrial()">下一试次</button>
+</div>
+
+<div id="feedbackBox" class="feedback hidden"></div>
+
+<div class="stats">
+<h4>实时统计</h4>
+<div>击中H：<span id="hit">0</span> &nbsp;&nbsp;虚惊FA：<span id="fa">0</span></div>
+<div>漏报M：<span id="miss">0</span> &nbsp;&nbsp;正确拒斥CR：<span id="cr">0</span></div>
+</div>
+</div>
+
+<div id="page-result" class="hidden">
+<h2>实验结束｜信号检测论结果报告</h2>
+<div class="result-block">
+<div>总试次：<span id="res-total"></span></div>
+<div>击中率 P(H)：<span id="res-ph"></span></div>
+<div>虚惊率 P(FA)：<span id="res-pfa"></span></div>
+<div>辨别力 d'：<span id="res-dp"></span></div>
+<div>判断标准 β：<span id="res-beta"></span></div>
+<p class="desc">
+d'越大代表你区分信号与噪声能力越强；β＞1说明判断标准偏保守（不容易报告有信号）；β＜1标准宽松；β≈1中等标准。
+</p>
+<button onclick="resetExp()">重新开始实验</button>
+</div>
+
+</div>
+
+<script>
+// 实验参数
+const totalTrials = 40;
+let currentTrial = 0;
+let trials = [];
+let currentIsSignal = false;
+let trialResponded = false;
+
+// SDT统计
+let hit = 0;
+let fa = 0;
+let miss = 0;
+let cr = 0;
+
+const canvas = document.getElementById('ppgCanvas');
+const ctx = canvas.getContext('2d');
+canvas.width = 840;
+canvas.height = 260;
+
+// 置信滑块
+const confSlider = document.getElementById('confSlider');
+const confValSpan = document.getElementById('confVal');
+confSlider.oninput = function () {
+    confValSpan.innerText = confSlider.value;
+};
+
+// 生成试次序列：50%信号 50%噪声
+function generateTrials() {
+    trials = [];
+    for (let i = 0; i < totalTrials; i++) {
+        trials.push({ isSignal: i < totalTrials / 2 });
+    }
+    for (let i = trials.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [trials[i], trials[j]] = [trials[j], trials[i]];
+    }
+}
+
+// 生成PPG波形数据：脉搏正弦信号 + 高斯噪声
+function generatePPG(isSignal) {
+    const nPoints = 420;
+    const data = [];
+    const heartFreq = 1.2;
+    const noiseAmp = 0.38;
+    const sigAmp = isSignal ? 0.55 : 0;
+
+    for (let t = 0; t < nPoints; t++) {
+        const phase = 2 * Math.PI * heartFreq * (t / nPoints * 8);
+        const signal = sigAmp * Math.sin(phase);
+        const noise = (Math.random() * 2 - 1) * noiseAmp;
+        data.push(signal + noise);
+    }
+    return data;
+}
+
+// 绘制PPG波形
+function drawPPG(data) {
+    ctx.fillStyle = '#0b1020';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#2ee988';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    const yMid = canvas.height / 2;
+    const xStep = canvas.width / data.length;
+    for (let i = 0; i < data.length; i++) {
+        const x = i * xStep;
+        const y = yMid - data[i] * 90;
+        if (i === 0) {
+            ctx.moveTo(x, y);
+        } else {
+            ctx.lineTo(x, y);
+        }
+    }
+    ctx.stroke();
+}
+
+function updateStatUI() {
+    document.getElementById('hit').innerText = hit;
+    document.getElementById('fa').innerText = fa;
+    document.getElementById('miss').innerText = miss;
+    document.getElementById('cr').innerText = cr;
+}
+
+function startExp() {
+    document.getElementById('page-intro').classList.add('hidden');
+    document.getElementById('page-exp').classList.remove('hidden');
+    generateTrials();
+    currentTrial = 0;
+    hit = 0;
+    fa = 0;
+    miss = 0;
+    cr = 0;
+    updateStatUI();
+    loadTrial();
+}
+
+function loadTrial() {
+    trialResponded = false;
+    document.getElementById('btnYes').disabled = false;
+    document.getElementById('btnNo').disabled = false;
+    document.getElementById('btnNext').disabled = true;
+    document.getElementById('feedbackBox').classList.add('hidden');
+    confSlider.value = 3;
+    confValSpan.innerText = '3';
+
+    const trial = trials[currentTrial];
+    currentIsSignal = trial.isSignal;
+    const wave = generatePPG(currentIsSignal);
+    drawPPG(wave);
+
+    document.getElementById('trial-num').innerText = currentTrial + 1;
+    document.getElementById('total-trial').innerText = totalTrials;
+}
+
+function response(subjectSaySignal) {
+    if (trialResponded) return;
+    trialResponded = true;
+    document.getElementById('btnYes').disabled = true;
+    document.getElementById('btnNo').disabled = true;
+    document.getElementById('btnNext').disabled = false;
+
+    const fbBox = document.getElementById('feedbackBox');
+    fbBox.classList.remove('hidden');
+    let isCorrect;
+
+    if (currentIsSignal && subjectSaySignal) {
+        hit++;
+        isCorrect = true;
+        fbBox.innerText = '反馈：这一试次【真实存在脉搏信号】→你的判断正确（击中 Hit）';
+    } else if (!currentIsSignal && subjectSaySignal) {
+        fa++;
+        isCorrect = false;
+        fbBox.innerText = '反馈：这一试次【只有噪声，无脉搏】→你的判断错误（虚惊 False Alarm）';
+    } else if (currentIsSignal && !subjectSaySignal) {
+        miss++;
+        isCorrect = false;
+        fbBox.innerText = '反馈：这一试次【真实存在脉搏信号】→你的判断错误（漏报 Miss）';
+    } else {
+        cr++;
+        isCorrect = true;
+        fbBox.innerText = '反馈：这一试次【只有噪声，无脉搏】→你的判断正确（正确拒斥 Correct Rejection）';
+    }
+
+    fbBox.className = 'feedback ' + (isCorrect ? 'correct' : 'wrong');
+    updateStatUI();
+}
+
+function nextTrial() {
+    currentTrial++;
+    if (currentTrial >= totalTrials) {
+        showResult();
+    } else {
+        loadTrial();
+    }
+}
+
+function normInv(p) {
+    if (p <= 0.0001) p = 0.0001;
+    if (p >= 0.9999) p = 0.9999;
+
+    const a = [-39.6968302866538, 220.946098424521, -275.928510446969, 138.357751867269, -30.6647980661472, 2.50662827745924];
+    const b = [-54.4760987982241, 161.585836858041, -155.698979860813, 66.8013118877197, -13.2806815528857];
+    const c = [-0.00778489400243029, -0.322396458041136, -2.40075827786142, -2.54973253934373, 4.37466414146497, 2.97880457330512];
+    const d = [0.00778469570904148, 0.322420882311791, 2.445134137143, 3.75440866190742];
+
+    let q = p - 0.5;
+    let z;
+
+    if (Math.abs(q) < 0.42) {
+        const r = q * q;
+        z = q * (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) /
+                (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+    } else {
+        const r = (q > 0) ? (1 - p) : p;
+        z = c[0] * r + c[1];
+        z = (z * r + c[2]) * r + c[3];
+        z = (z * r + c[4]) * r + c[5];
+        z /= (((z * r + d[0]) * r + d[1]) * r + d[2]) * r + d[3];
+        if (q < 0) z = -z;
+    }
+    return z;
+}
+
+function phi(x) {
+    return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+}
+
+function showResult() {
+    document.getElementById('page-exp').classList.add('hidden');
+    document.getElementById('page-result').classList.remove('hidden');
+
+    const pH = hit / (hit + miss);
+    const pFA = fa / (fa + cr);
+    const zh = normInv(pH);
+    const zfa = normInv(pFA);
+    const dPrime = zh - zfa;
+    const beta = phi(zh) / phi(zfa);
+
+    document.getElementById('res-total').innerText = totalTrials;
+    document.getElementById('res-ph').innerText = pH.toFixed(3);
+    document.getElementById('res-pfa').innerText = pFA.toFixed(3);
+    document.getElementById('res-dp').innerText = dPrime.toFixed(3);
+    document.getElementById('res-beta').innerText = beta.toFixed(3);
+}
+
+function resetExp() {
+    document.getElementById('page-result').classList.add('hidden');
+    document.getElementById('page-intro').classList.remove('hidden');
+}
+</script>
+</body>
+</html>

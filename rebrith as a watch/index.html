@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>信号检测论交互实验 · 智能手环 PPG 心率监测</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ============ 欢迎 / 说明页 ============ -->
+  <section id="screen-welcome" class="screen active">
+    <header class="hero">
+      <div class="hero-text">
+        <div class="kicker">SIGNAL DETECTION THEORY × PPG</div>
+        <h1>重生之米之手环养成记</h1>
+        <h2>作为智能手环「看见」心跳的日子</h2>
+        <p class="lead">
+          前情提要（？）智能手环背面的绿色 LED 向皮肤发射光，光电二极管接收反射光。
+          心脏搏动使血管容积周期变化，反射光随之轻微起伏——这就是
+          <b>PPG（光电容积脉搏波）</b>。
+          然而运动、环境光、佩戴松紧都会带来噪声。<b>脉搏「信号」</b>与<b>随机「噪声」</b>难分彼此，
+          你（米之手环）必须在不确定中作出判断。
+        </p>
+      </div>
+      <div class="hero-figure" aria-hidden="true">
+        <svg viewBox="0 0 260 220" class="ppg-svg">
+          <!-- 表带 -->
+          <rect x="10" y="92" width="240" height="36" rx="18" fill="#1c2b26" stroke="#2e463d"/>
+          <!-- 皮肤 -->
+          <rect x="0" y="128" width="260" height="92" fill="#3a2b25"/>
+          <path d="M0 128 Q65 118 130 128 T260 128 V220 H0 Z" fill="#4a362e"/>
+          <!-- 血管（舒张/收缩示意） -->
+          <path id="artery" d="M0 170 Q65 160 130 170 T260 166 V188 Q195 198 130 188 T0 192 Z" fill="#6e2f2f"/>
+          <!-- LED -->
+          <circle class="led" cx="105" cy="110" r="9" fill="#39ff88"/>
+          <circle class="led" cx="105" cy="110" r="4" fill="#eafff2"/>
+          <!-- 光电二极管 -->
+          <rect x="143" y="102" width="22" height="16" rx="3" fill="#0d1f18" stroke="#39ff88" stroke-width="1.5"/>
+          <!-- 光路 -->
+          <path class="lightbeam" d="M105 119 L105 150" stroke="#39ff88" stroke-width="2" stroke-dasharray="4 4" opacity="0.7"/>
+          <path class="lightbeam" d="M105 150 Q130 160 154 119" stroke="#39ff88" stroke-width="2" stroke-dasharray="4 4" opacity="0.45"/>
+          <text x="105" y="86" text-anchor="middle" fill="#7fd8b0" font-size="11">绿光 LED</text>
+          <text x="154" y="96" text-anchor="middle" fill="#7fd8b0" font-size="11">光电接收</text>
+        </svg>
+      </div>
+    </header>
+
+    <div class="card">
+      <h3>实验任务</h3>
+      <p>
+        每个试次中，你将看到传感器记录的一段 <b>3.2 秒</b>波形（实时监测逐点扫描显示）。
+        请判断波形中<b>是否隐藏着规律的心跳脉搏信号</b>：
+      </p>
+      <div class="examples">
+        <figure>
+          <canvas id="demo-signal" width="300" height="110"></canvas>
+          <figcaption>示例：<b style="color:var(--green)">信号 + 噪声</b>（可见周期性脉搏）</figcaption>
+        </figure>
+        <figure>
+          <canvas id="demo-noise" width="300" height="110"></canvas>
+          <figcaption>示例：<b style="color:var(--teal)">仅噪声</b>（随机起伏，无周期）</figcaption>
+        </figure>
+      </div>
+
+      <h3>四种判断结果</h3>
+      <div class="matrix2x2">
+        <div class="m-head"></div>
+        <div class="m-head">你判断「有信号」</div>
+        <div class="m-head">你判断「仅噪声」</div>
+        <div class="m-head m-rowhead">确实有信号</div>
+        <div class="m-cell hit"><b>击中 Hit</b><span>正确发现脉搏</span></div>
+        <div class="m-cell miss"><b>漏报 Miss</b><span>脉搏被你放过</span></div>
+        <div class="m-head m-rowhead">实际无信号</div>
+        <div class="m-cell fa"><b>虚报 False Alarm</b><span>把噪声当成脉搏</span></div>
+        <div class="m-cell cr"><b>正确拒斥 CR</b><span>正确识破噪声</span></div>
+      </div>
+      <p class="note">
+        实验包含 <b>3 种干扰情境</b>：<b style="color:#ffc247">环境光干扰</b>（阳光/灯光从缝隙射入）、
+        <b style="color:#ff7a5c">佩戴问题</b>（表带松动、摆臂造成的运动伪迹）、
+        <b style="color:#6ea8ff">生理因素</b>（低灌注、心率变异、呼吸调制）。
+        每种情境 <b>15 个试次</b>：<b style="color:#2dff94">10 个含脉搏信号</b>（脉搏有强有弱，随机混合，无需区分）、
+        <b style="color:#38d6e0">5 个仅噪声</b>，共 45 试次（约 6–7 分钟）。
+        实验结束后将自动计算每种情境下的 <b>辨别力 d′</b> 与 <b>判断标准 c / β</b>，并绘制 ROC 曲线。
+      </p>
+
+      <div class="config-row">
+        <label class="cfg">
+          <span class="cfg-label">你的 ID（昵称）</span>
+          <input id="inp-id" type="text" maxlength="12" placeholder="输入" autocomplete="off">
+        </label>
+        <label class="cfg">
+          <span class="cfg-label">难度（信号强度 / 理论 d′）</span>
+          <select id="sel-diff">
+            <option value="easy">简单 · 强 1.80 / 弱 0.95</option>
+            <option value="normal" selected>标准 · 强 1.45 / 弱 0.62</option>
+            <option value="hard">困难 · 强 1.10 / 弱 0.45</option>
+            <option value="extreme">极难 · 强 0.85 / 弱 0.32</option>
+          </select>
+        </label>
+        <button id="btn-start" class="btn btn-primary btn-lg">开始实验 →</button>
+        <button id="btn-board" class="btn">🏆 排行榜</button>
+      </div>
+      <p class="note" style="margin-top:10px">共 45 试次 · 3 情境 × 15 试次（10 信号 + 5 噪声，信号强弱随机混合）。波形扫描完毕1.5 秒后，随即从屏幕消失，请你凭记忆尽快判断是否含有脉搏信号。</p>
+      <p class="kbd-hint">操作：按 <kbd>F</kbd> = 仅噪声（左），<kbd>J</kbd> = 有信号（右），<kbd>空格</kbd> = 下一试次；也可点击按钮。</p>
+    </div>
+  </section>
+
+  <!-- ============ 组间介绍页 ============ -->
+  <section id="screen-blockintro" class="screen">
+    <div class="card narrow center">
+      <div id="bi-badge" class="block-badge"></div>
+      <h2 id="bi-title"></h2>
+      <p id="bi-scene" class="scene"></p>
+      <div id="bi-tip" class="condition-tip"></div>
+      <div class="legend-mini">
+        <span><i class="dot hit"></i>击中</span>
+        <span><i class="dot miss"></i>漏报</span>
+        <span><i class="dot fa"></i>虚报</span>
+        <span><i class="dot cr"></i>正确拒斥</span>
+      </div>
+      <button id="btn-begin-block" class="btn btn-primary btn-lg">进入本组 →</button>
+    </div>
+  </section>
+
+  <!-- ============ 试次页 ============ -->
+  <section id="screen-trial" class="screen">
+    <div class="trial-topbar">
+      <div class="tb-left">
+        <span id="t-badge" class="block-badge small"></span>
+        <span id="t-blockname" class="block-name"></span>
+      </div>
+      <div class="tb-right">
+        <span class="led-indicator" id="scan-indicator"><i></i>采样中</span>
+        <span id="t-counter" class="counter">试次 1 / 16</span>
+      </div>
+    </div>
+    <div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div>
+
+    <div class="monitor">
+      <div class="monitor-label">
+        <span>PPG 光学采样窗口 · 3.2 s</span>
+        <span id="monitor-status" class="monitor-status">等待波形扫描…</span>
+      </div>
+      <canvas id="trace-canvas" width="920" height="300"></canvas>
+    </div>
+
+    <div class="response-row">
+      <button id="btn-noise" class="btn btn-resp btn-noise" disabled>
+        <span class="keycap">F</span>
+        <span class="resp-main">仅噪声</span>
+        <span class="resp-sub">没有规律脉搏</span>
+      </button>
+      <button id="btn-signal" class="btn btn-resp btn-signal" disabled>
+        <span class="keycap">J</span>
+        <span class="resp-main">有心跳信号</span>
+        <span class="resp-sub">存在周期性脉搏</span>
+      </button>
+    </div>
+
+    <div id="feedback" class="feedback hidden">
+      <div class="fb-main">
+        <span id="fb-chip" class="outcome-chip"></span>
+        <span id="fb-truth"></span>
+      </div>
+      <button id="btn-next" class="btn btn-primary">下一试次 <span class="keycap light">空格</span></button>
+    </div>
+  </section>
+
+  <!-- ============ 结果页 ============ -->
+  <section id="screen-results" class="screen">
+    <div class="card">
+      <h2 class="results-title">实验结果 · 信号检测论分析</h2>
+      <p class="note" id="results-overall"></p>
+
+      <h3>① 各情境的 2×2 反应矩阵与指标</h3>
+      <div class="table-wrap">
+        <table id="results-table">
+          <thead>
+            <tr>
+              <th>干扰情境</th>
+              <th>击中</th><th>漏报</th><th>虚报</th><th>正确拒斥</th>
+              <th>命中率 P(H)</th><th>虚报率 P(FA)</th>
+              <th>d′</th><th>c</th><th>β</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="formula">
+        d′ = Z[P(H)] − Z[P(FA)]（辨别力，越大越敏感）　|　c = −½(Z[P(H)] + Z[P(FA)])（判断标准，负值宽松、正值严格）　|　β = φ(Z(H)) / φ(Z(FA))（似然比标准）
+      </p>
+
+      <div class="charts">
+        <div class="chart-box">
+          <h3>② ROC 曲线（受试者工作特征）</h3>
+          <canvas id="roc-canvas" width="460" height="400"></canvas>
+          <p class="chart-cap" id="roc-cap"></p>
+        </div>
+        <div class="chart-box">
+          <h3>③ d′ 与判断标准 c 对比</h3>
+          <canvas id="bar-canvas" width="460" height="400"></canvas>
+          <p class="chart-cap" id="bar-cap"></p>
+        </div>
+      </div>
+
+      <div class="interpret" id="interpret"></div>
+
+      <div class="results-actions">
+        <button id="btn-submit" class="btn btn-primary">🏆 提交成绩到排行榜</button>
+        <button id="btn-csv" class="btn">导出试次数据 (CSV)</button>
+        <button id="btn-board-2" class="btn">查看排行榜</button>
+        <button id="btn-restart" class="btn">重做实验 ↻</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 排行榜页 ============ -->
+  <section id="screen-board" class="screen">
+    <div class="card">
+      <h2 class="results-title">🏆 信号检测力排行榜</h2>
+      <p class="note">按三情境<b>平均辨别力 d′</b> 降序排名（d′ 不受判断标准松严影响，只反映真实辨别能力）；并列时比较正确率。成绩保存在本浏览器本地。</p>
+      <div class="table-wrap">
+        <table id="board-table">
+          <thead>
+            <tr>
+              <th>排名</th><th>ID</th><th>难度</th><th>平均 d′</th><th>正确率</th>
+              <th>击中率</th><th>虚报率</th><th>提交时间</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="board-empty" class="note" style="display:none;text-align:center;padding:24px 0">还没有任何成绩，去完成一次实验成为榜首吧！</p>
+      <div class="results-actions">
+        <button id="btn-board-back" class="btn btn-primary">返回</button>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
